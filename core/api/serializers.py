@@ -47,42 +47,44 @@ class BoardMemberSerializer(serializers.ModelSerializer):
 
 
 class TaskSerializer(serializers.ModelSerializer):
-    assignee = serializers.SerializerMethodField()
-    reviewer = serializers.SerializerMethodField()
+    assignees = serializers.SerializerMethodField()
+    reviewers = serializers.SerializerMethodField()
     comments_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
         fields = [
-            'id', 'title', 'description', 'status', 'priority',
-            'assignee', 'reviewer', 'due_date', 'comments_count'
+            'id', 'board', 'title', 'description', 'status', 'priority',
+            'assignees', 'reviewers', 'due_date', 'comments_count'
         ]
 
-    def get_assignee(self, obj):
-        if obj.assignee:
-            return {
-                'id': obj.assignee.id,
-                'email': obj.assignee.email,
-                'fullname': obj.assignee.fullname
+    def get_assignees(self, obj):
+        return [
+            {
+                'id': user.id,
+                'email': user.email,
+                'fullname': user.first_name
             }
-        return None
+            for user in obj.assignees.all()
+        ]
 
-    def get_reviewer(self, obj):
-        if obj.reviewer:
-            return {
-                'id': obj.reviewer.id,
-                'email': obj.reviewer.email,
-                'fullname': obj.reviewer.fullname
+    def get_reviewers(self, obj):
+        return [
+            {
+                'id': user.id,
+                'email': user.email,
+                'fullname': user.first_name
             }
-        return None
+            for user in obj.reviewers.all()
+        ]
 
     def get_comments_count(self, obj):
-        return obj.comments.count() 
+        return obj.comments.count() if hasattr(obj, 'comments') else 0
     
 
 class BoardDetailSerializer(serializers.ModelSerializer):
     members = BoardMemberSerializer(many=True)
-    tasks = TaskSerializer(many=True)
+    tasks = TaskSerializer(many=True, source='tasks.all')
     owner_id = serializers.IntegerField(source='owner.id')
 
     class Meta:

@@ -4,7 +4,6 @@ from rest_framework import status
 from .serializers import BoardSerializer, TaskSerializer
 from core.models import Board, Task
 from rest_framework.permissions import IsAuthenticated
-from .permissions import IsStaffOrReadOnly
 from django.db.models import Q
 from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
@@ -15,16 +14,6 @@ from django.shortcuts import get_object_or_404
 class BoardListView(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
-
-    def get(self, request, board_id):
-        board = get_object_or_404(Board, id=board_id)
-
-        user = request.user
-        if board.owner != user and user not in board.members.all():
-            return Response({'error': 'Zugriff verweigert'}, status=status.HTTP_403_FORBIDDEN)
-
-        serializer = BoardSerializer(board)
-        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
         user = request.user
@@ -37,7 +26,6 @@ class BoardListView(APIView):
 
         if serializer.is_valid():
             board = serializer.save(owner=request.user)
-            
             member_ids = request.data.get('members', [])
             valid_users = User.objects.filter(id__in=member_ids)
             board.members.set(valid_users)
@@ -54,6 +42,27 @@ class BoardListView(APIView):
             }
             return Response(data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def get(self, request):
+        user = request.user
+        boards = Board.objects.filter(Q(owner=user) | Q(members=user)).distinct()
+        serializer = BoardSerializer(boards, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+
+class BoardDetailsView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, board_id):
+        board = get_object_or_404(Board, id=board_id)
+        user = request.user
+
+        if board.owner != user and user not in board.members.all():
+            return Response({'detail': 'Zugriff verweigert'}, status=status.HTTP_403_FORBIDDEN)
+        
+        serializer = BoardSerializer(board)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def patch(self, request, board_id):
         board = get_object_or_404(Board, id=board_id)
@@ -85,6 +94,10 @@ class BoardListView(APIView):
         
         board.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+
+
       
 class EmailCheckView(APIView):
     permission_classes = [IsAuthenticated]
@@ -124,15 +137,18 @@ class TaskCreateView(APIView):
             if user != board.owner and user not in board.members.all():
                 return Response({"error": "Zugriff verweigert. Kein Mitglied dieses Boards."}, status=403)
 
-            assignee_id = data.get("assignee_id")
-            reviewer_id = data.get("reviewer_id")
+            assignee_id = data.get("assignee_ids", [])
 
-            assignee = None
+            reviewer_id = data.get("reviewer_ids", [])
+            assignees = User.objects.filter(id__in=assignee_id)
+            reviewers = User.objects.filter(id__in=reviewer_id)
+
+            assignees = None
             reviewer = None
 
             if assignee_id:
-                assignee = get_object_or_404(User, id=assignee_id)
-                if assignee not in board.members.all():
+                assignees = get_object_or_404(User, id=assignee_id)
+                if assignees not in board.members.all():
                     return Response({"error": "Assignee ist kein Mitglied des Boards."}, status=400)
 
             if reviewer_id:
@@ -149,10 +165,13 @@ class TaskCreateView(APIView):
                 due_date=data.get("due_date")
             )
 
-            if assignee:
-                task.assignee.add(assignee)
+            if assignees:
+                task.assignees.add(assignees)
             if reviewer:
                 task.reviewers.add(reviewer)
+
+            task.assignees.set(assignees)
+            task.reviewers.set(reviewers)
 
             serializer = TaskSerializer(task, context={"request": request})
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -168,7 +187,7 @@ class MyTasksView(APIView):
     def get(self, request):
         try:
             user = request.user
-            tasks = Task.objects.filter(assignee=user).distinct()
+            tasks = Task.objects.filter(assignees=user).distinct()
             serializer = TaskSerializer(tasks, many=True, context={'request': request})
             return Response(serializer.data, status=status.HTTP_200_OK)
         

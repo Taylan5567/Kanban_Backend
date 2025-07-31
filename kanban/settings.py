@@ -40,12 +40,12 @@ CORS_ALLOW_ALL_ORIGINS = True  # Nur für Entwicklung!
 # Application definition
 
 INSTALLED_APPS = [
+    'corsheaders',
     'auth_app',
     'core.api',
     'core',
     'rest_framework',
     'rest_framework.authtoken',
-    'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',

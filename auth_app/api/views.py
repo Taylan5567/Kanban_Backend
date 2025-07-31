@@ -41,17 +41,12 @@ class RegistrationView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 
-    def get(self, request):
-        return Response({"message": "Bitte Registrieren"}, status=405)
-    
-
 
 class LoginView(ObtainAuthToken):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         try:
-            
             data = request.data.copy()
             email = data.get('email')
             password = data.get('password')
