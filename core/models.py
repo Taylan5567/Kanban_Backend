@@ -24,10 +24,10 @@ class Task(models.Model):
     ]
 
     STATUS_CHOICES = [
-        ('to_do', 'To Do'),
-        ('in_progress', 'In Progress'),
-        ('done', 'Done'),
-        ('review', 'Review'),
+        ('to-do', 'to-do'),
+        ('in-progress', 'in-progress'),
+        ('done', 'done'),
+        ('review', 'review'),
     ]
 
     board = models.ForeignKey(Board, on_delete=models.CASCADE, related_name='tasks')
