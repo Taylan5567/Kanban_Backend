@@ -1,8 +1,8 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .serializers import BoardSerializer, TaskSerializer
-from core.models import Board, Task
+from .serializers import BoardSerializer, TaskSerializer, TaskReviewSerializer, CommentSerializer
+from core.models import Board, Task, Comment
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
 from django.contrib.auth.models import User
@@ -95,9 +95,6 @@ class BoardDetailsView(APIView):
         board.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-
-
-
       
 class EmailCheckView(APIView):
     permission_classes = [IsAuthenticated]
@@ -132,29 +129,22 @@ class TaskCreateView(APIView):
                 return Response({"error": "Board-ID fehlt."}, status=400)
 
             board = get_object_or_404(Board, id=board_id)
-
             user = request.user
+
             if user != board.owner and user not in board.members.all():
                 return Response({"error": "Zugriff verweigert. Kein Mitglied dieses Boards."}, status=403)
 
-            assignee_id = data.get("assignee_ids", [])
+            assignee_ids = data.get("assignee_ids", [])
+            reviewer_ids = data.get("reviewer_ids", [])
 
-            reviewer_id = data.get("reviewer_ids", [])
-            assignees = User.objects.filter(id__in=assignee_id)
-            reviewers = User.objects.filter(id__in=reviewer_id)
+            assignees = User.objects.filter(id__in=assignee_ids)
+            reviewers = User.objects.filter(id__in=reviewer_ids)
 
-            assignees = None
-            reviewer = None
+            if not all(user in board.members.all() for user in assignees):
+                return Response({"error": "Ein oder mehrere Assignees sind keine Mitglieder des Boards."}, status=400)
 
-            if assignee_id:
-                assignees = get_object_or_404(User, id=assignee_id)
-                if assignees not in board.members.all():
-                    return Response({"error": "Assignee ist kein Mitglied des Boards."}, status=400)
-
-            if reviewer_id:
-                reviewer = get_object_or_404(User, id=reviewer_id)
-                if reviewer not in board.members.all():
-                    return Response({"error": "Reviewer ist kein Mitglied des Boards."}, status=400)
+            if not all(user in board.members.all() for user in reviewers):
+                return Response({"error": "Ein oder mehrere Reviewer sind keine Mitglieder des Boards."}, status=400)
 
             task = Task.objects.create(
                 board=board,
@@ -164,11 +154,6 @@ class TaskCreateView(APIView):
                 priority=data.get("priority"),
                 due_date=data.get("due_date")
             )
-
-            if assignees:
-                task.assignees.add(assignees)
-            if reviewer:
-                task.reviewers.add(reviewer)
 
             task.assignees.set(assignees)
             task.reviewers.set(reviewers)
@@ -180,16 +165,109 @@ class TaskCreateView(APIView):
             return Response({"error": str(e)}, status=500)
    
         
-
-class MyTasksView(APIView):
+class MyTasksAssignedView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         try:
             user = request.user
-            tasks = Task.objects.filter(assignees=user).distinct()
-            serializer = TaskSerializer(tasks, many=True, context={'request': request})
+            task = Task.objects.filter(assignees=user).distinct()
+            serializer = TaskSerializer(task, many=True, context={'request': request})
+
             return Response(serializer.data, status=status.HTTP_200_OK)
         
         except Exception as e: 
             return Response({'errors': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+class MyTasksReviewsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            user = request.user
+            tasks = Task.objects.filter(reviewers=user).distinct()
+            serializer = TaskReviewSerializer(tasks, many=True, context={'request': request})
+
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        
+        except Exception as e: 
+            return Response({'errors': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+class MyTaskDetailsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, tasks_id):
+        task = get_object_or_404(Task, id=tasks_id)
+
+        data = request.data.copy()
+        serializer = TaskSerializer(task, data=data, partial=True, context={'request': request})
+
+        if serializer.is_valid():
+            updated_task = serializer.save()
+
+            if 'assignees' in data:
+                assignee_ids = data.get('assignees', [])
+                valid_assignees = User.objects.filter(id__in=assignee_ids)
+                updated_task.assignees.set(valid_assignees)
+
+            if 'reviewers' in data:
+                reviewer_ids = data.get('reviewers', [])
+                valid_reviewers = User.objects.filter(id__in=reviewer_ids)
+                updated_task.reviewers.set(valid_reviewers)
+
+            return Response(TaskSerializer(updated_task).data, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, task_id):
+        task = get_object_or_404(Task, id=task_id)
+
+        if request.user not in task.assignees.all() and request.user not in task.reviewers.all():
+            return Response({'detail': 'Zugriff verweigert'}, status=status.HTTP_403_FORBIDDEN)
+
+        task.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CommentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, task_id):
+        task = get_object_or_404(Task, id=task_id)
+
+        if request.user != task.board.owner and request.user not in task.board.members.all():
+            return Response({'detail': 'Zugriff verweigert'}, status=403)
+
+        data = request.data.copy()
+        data['author'] = request.user.id
+        data['task'] = task.id
+
+        serializer = CommentSerializer(data=data)
+        if serializer.is_valid():
+            serializer.save(author=request.user, task=task)
+            return Response(serializer.data, status=201)
+        return Response(serializer.errors, status=400)
+
+    def get(self, request, task_id):
+        task = get_object_or_404(Task, id=task_id)
+        user = request.user
+        
+        if request.user != task.board.owner and request.user not in task.board.members.all():
+            return Response({'detail': 'Zugriff verweigert'}, status=403)
+        
+        serializer = CommentSerializer(task.comments.all(), many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+
+class CommentDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, task_id, comment_id):
+        comment = get_object_or_404(Comment, id=comment_id, task__id=task_id)
+
+        if request.user != comment.task.board.owner and request.user not in comment.task.board.members.all():
+            return Response({'detail': 'Zugriff verweigert'}, status=status.HTTP_403_FORBIDDEN)
+
+        comment.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from core.models import Board, Task
+from core.models import Board, Task, Comment
 from django.contrib.auth.models import User
 
 class BoardSerializer(serializers.ModelSerializer): 
@@ -81,6 +81,30 @@ class TaskSerializer(serializers.ModelSerializer):
     def get_comments_count(self, obj):
         return obj.comments.count() if hasattr(obj, 'comments') else 0
     
+class TaskReviewSerializer(serializers.ModelSerializer):
+    comments_count = serializers.SerializerMethodField()
+    reviewers = serializers.SerializerMethodField()
+    
+
+    class Meta:
+        model = Task 
+        fields = [
+            'id', 'board', 'title', 'description', 'status', 'priority','reviewers', 'due_date', 'comments_count'
+        ]
+
+    def get_reviewers(self, obj):
+        return [
+            {
+                'id': user.id,
+                'email': user.email,
+                'fullname': user.first_name
+            }
+            for user in obj.reviewers.all()
+        ]
+    
+    def get_comments_count(self, obj):
+        return obj.comments.count() if hasattr(obj, 'comments') else 0
+    
 
 class BoardDetailSerializer(serializers.ModelSerializer):
     members = BoardMemberSerializer(many=True)
@@ -90,3 +114,13 @@ class BoardDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Board
         fields = ['id', 'title', 'owner_id', 'members', 'tasks']
+
+class CommentSerializer(serializers.ModelSerializer):
+    author = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Comment
+        fields = ['id', 'created_at', 'author', 'content']
+
+    def get_author(self, obj):
+        return obj.author.first_name
