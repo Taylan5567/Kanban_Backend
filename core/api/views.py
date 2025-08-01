@@ -196,6 +196,27 @@ class TaskCreateView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=500)
         
+
+
+class MyTasksReviewsView(APIView):
+    permission_classes = [IsAuthenticated]  # Only authenticated users can access this view
+
+    def get(self, request):
+        try:
+            user = request.user
+            tasks = Task.objects.filter(reviewers=user).distinct()
+            serializer = TaskReviewSerializer(tasks, many=True, context={'request': request})
+
+            # Return tasks the user is reviewing
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            # Return server error if an exception occurs
+            return Response({'errors': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        
+
+        
 class MyTasksAssignedView(APIView):
     permission_classes = [IsAuthenticated]  # Only authenticated users can access this view
 
