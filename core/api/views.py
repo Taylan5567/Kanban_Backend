@@ -31,8 +31,7 @@ class BoardListView(APIView):
             board.members.set(valid_users)
 
             response_data = {
-                'token': token.key,
-                'board': board.id,
+                'id': board.id,
                 'title': board.title,
                 'member_count': board.members.count(),
                 'ticket_count': board.ticket_count,

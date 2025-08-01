@@ -108,16 +108,6 @@ Kanban_Backend/
 
 ---
 
-## 🧠 Ideas for Future Development
-
-- 🔒 Switch to JWT authentication
-- 🌐 Add Swagger / ReDoc API docs
-- 📩 Email confirmation on registration
-- 📊 Task statistics & dashboard API
-- 🔔 Notifications via WebSocket/Channels
-
----
-
 ## 📜 License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
