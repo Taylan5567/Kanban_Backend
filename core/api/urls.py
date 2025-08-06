@@ -11,7 +11,7 @@ urlpatterns = [
     path('login/', LoginView.as_view(), name='login'),
     path('boards/', BoardListView.as_view(), name='board_list'),
     path('boards/<int:board_id>/', BoardDetailsView.as_view()), 
-    path('email-check/', EmailCheckView.as_view(), name='email_check'),
+    path('email-check/<str:email>/', EmailCheckView.as_view(), name='email_check'),
     path('tasks/', TaskCreateView.as_view(), name="task_create"),
     path('tasks/assigned-to-me/', MyTasksAssignedView.as_view(), name='assigned_to_me'),
     path('tasks/reviewing/', MyTasksReviewsView.as_view(), name='assigned_to_me'),
