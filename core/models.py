@@ -33,7 +33,7 @@ class Board(models.Model):
     member_count = models.IntegerField(default=0)
     ticket_count = models.PositiveIntegerField(default=0)
     tasks_to_do_count = models.PositiveIntegerField(default=0)
-    task_high_priority_count = models.PositiveIntegerField(default=0)
+    tasks_high_prio_count = models.PositiveIntegerField(default=0)
 
     def __str__(self):
         """
@@ -82,12 +82,10 @@ class Task(models.Model):
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES)
     assignees = models.ManyToManyField(
         User,
-        blank=True,
         related_name='assigned_tasks'
     )
     reviewers = models.ManyToManyField(
         User,
-        blank=True,
         related_name='reviewed_tasks'
     )
     due_date = models.DateField(null=True, blank=True)

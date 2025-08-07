@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .serializers import BoardSerializer, TaskSerializer, TaskReviewSerializer, CommentSerializer
+from .serializers import BoardDetailSerializer, BoardPatchSerializer, TaskPatchSerializer, TaskAssignedToMeSerializer
 from core.models import Board, Task, Comment
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
@@ -15,7 +16,6 @@ class BoardListView(APIView):
     """
     API endpoint to create a new board or list all boards where the user is an owner or a member.
     """
-
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -45,7 +45,7 @@ class BoardListView(APIView):
                 'member_count': board.members.count(),
                 'ticket_count': board.ticket_count,
                 'tasks_to_do_count': board.tasks_to_do_count,
-                'tasks_high_prio_count': board.task_high_priority_count,
+                'tasks_high_prio_count': board.tasks_high_prio_count,
                 'owner_id': user.id
             }
             return Response(response_data, status=status.HTTP_201_CREATED)
@@ -69,7 +69,6 @@ class BoardDetailsView(APIView):
         - Only the board owner or members can view or edit.
         - Only the owner can delete the board.
     """
-
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -83,10 +82,7 @@ class BoardDetailsView(APIView):
         if board.owner != user and user not in board.members.all():
             return Response({'detail': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
-        board_data = BoardSerializer(board, context={'request': request}).data
-        tasks = board.tasks.all()
-        board_data['tasks'] = TaskSerializer(tasks, many=True, context={'request': request}).data
-
+        board_data = BoardDetailSerializer(board).data
         return Response(board_data, status=status.HTTP_200_OK)
 
     def patch(self, request, board_id):
@@ -101,7 +97,7 @@ class BoardDetailsView(APIView):
             return Response({'detail': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
         data = request.data.copy()
-        serializer = BoardSerializer(board, data=data, partial=True, context={'request': request})
+        serializer = BoardPatchSerializer(board, data=data, partial=True, context={'request': request})
 
         if serializer.is_valid():
             updated_board = serializer.save()
@@ -111,9 +107,7 @@ class BoardDetailsView(APIView):
                 valid_members = User.objects.filter(id__in=member_ids)
                 updated_board.members.set(valid_members)
 
-            board_data = BoardSerializer(updated_board, context={'request': request}).data
-            tasks = updated_board.tasks.all()
-            board_data['tasks'] = TaskSerializer(tasks, many=True, context={'request': request}).data
+            board_data = BoardPatchSerializer(updated_board, context={'request': request}).data
 
             return Response(board_data, status=status.HTTP_200_OK)
 
@@ -167,7 +161,6 @@ class TaskCreateView(APIView):
     Permissions:
         - User must be authenticated and must be the owner or a member of the board.
     """
-
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -203,17 +196,17 @@ class TaskCreateView(APIView):
             if user != board.owner and user not in board.members.all():
                 return Response({"error": "Access denied. You are not a member of this board."}, status=status.HTTP_403_FORBIDDEN)
 
-            assignee_ids = data.get("assignees") or ([data.get("assignee_id")] if data.get("assignee_id") else [])
-            reviewer_ids = data.get("reviewers") or ([data.get("reviewer_id")] if data.get("reviewer_id") else [])
+            assignee_ids = []
+            if 'assignees' in data:
+                assignee_ids = data.get('assignees', [])
+            elif 'assignee_id' in data:
+                assignee_ids = [data.get('assignee_id')]
 
-            assignees = User.objects.filter(id__in=[int(aid) for aid in assignee_ids if aid])
-            reviewers = User.objects.filter(id__in=[int(rid) for rid in reviewer_ids if rid])
-
-            if not all(user in board.members.all() for user in assignees):
-                return Response({"error": "One or more assignees are not board members."}, status=status.HTTP_400_BAD_REQUEST)
-
-            if not all(user in board.members.all() for user in reviewers):
-                return Response({"error": "One or more reviewers are not board members."}, status=status.HTTP_400_BAD_REQUEST)
+            reviewer_ids = []
+            if 'reviewers' in data:
+                reviewer_ids = data.get('reviewers', [])
+            elif 'reviewer_id' in data:
+                reviewer_ids = [data.get('reviewer_id')]
 
             task = Task.objects.create(
                 board=board,
@@ -224,14 +217,15 @@ class TaskCreateView(APIView):
                 due_date=data.get("due_date")
             )
 
-            task.assignees.set(assignees)
-            task.reviewers.set(reviewers)
+            task.assignees.set(assignee_ids)
+            task.reviewers.set(reviewer_ids)
 
             serializer = TaskSerializer(task, context={"request": request})
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
 class MyTasksReviewsView(APIView):
     """
     API view to retrieve all tasks where the authenticated user is a reviewer.
@@ -253,7 +247,7 @@ class MyTasksReviewsView(APIView):
         try:
             user = request.user
             tasks = Task.objects.filter(reviewers=user).distinct()
-            serializer = TaskReviewSerializer(tasks, many=True, context={'request': request})
+            serializer = TaskAssignedToMeSerializer(tasks, many=True, context={'request': request})
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         except Exception as e:
@@ -280,7 +274,7 @@ class MyTasksAssignedView(APIView):
         try:
             user = request.user
             tasks = Task.objects.filter(assignees=user).distinct()
-            serializer = TaskSerializer(tasks, many=True, context={'request': request})
+            serializer = TaskAssignedToMeSerializer(tasks, many=True, context={'request': request})
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         except Exception as e:
@@ -310,26 +304,33 @@ class MyTaskDetailsView(APIView):
             - 404 Not Found if task doesn't exist
         """
         task = get_object_or_404(Task, id=task_id)
+        user = request.user
         data = request.data.copy()
-
-        serializer = TaskSerializer(task, data=data, partial=True, context={'request': request})
+        serializer = TaskPatchSerializer(task, data=data, partial=True, context={'request': request})
 
         if serializer.is_valid():
             updated_task = serializer.save()
+            
+            assignee_ids = []
+            if 'assignees' in data:
+                assignee_ids = data.get('assignees', [])
+            elif 'assignee_id' in data:
+                assignee_ids = [data.get('assignee_id')]
+            valid_assignees = User.objects.filter(id__in=assignee_ids)
+            updated_task.assignees.set(valid_assignees)
 
-            # Update assignees if provided
-            if 'assignees' in data or 'assignee_id' in data:
-                assignee_ids = data.get("assignees") or ([data.get("assignee_id")] if data.get("assignee_id") else [])
-                valid_assignees = User.objects.filter(id__in=assignee_ids)
-                updated_task.assignees.set(valid_assignees)
+            reviewer_ids = []
+            if 'reviewers' in data:
+                reviewer_ids = data.get('reviewers', [])
+            elif 'reviewer_id' in data:
+                reviewer_ids = [data.get('reviewer_id')]
+            valid_reviewers = User.objects.filter(id__in=reviewer_ids)
+            updated_task.reviewers.set(valid_reviewers)
 
-            # Update reviewers if provided
-            if 'reviewers' in data or 'reviewer_id' in data:
-                reviewer_ids = data.get("reviewers") or ([data.get("reviewer_id")] if data.get("reviewer_id") else [])
-                valid_reviewers = User.objects.filter(id__in=reviewer_ids)
-                updated_task.reviewers.set(valid_reviewers)
 
-            return Response(TaskSerializer(updated_task, context={'request': request}).data, status=status.HTTP_200_OK)
+            task_data = TaskPatchSerializer(updated_task, context={'request': request}).data
+
+            return Response(task_data, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -424,7 +425,7 @@ class CommentDetailView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def delete(self, request, task_id, comment_id):
+    def delete(self, request, task_id, comments_id):
         """
         Handle DELETE request for a specific comment.
 
@@ -438,11 +439,11 @@ class CommentDetailView(APIView):
             HTTP 403 if access is denied,
             HTTP 404 if comment not found.
         """
-        comment = get_object_or_404(Comment, id=comment_id, task__id=task_id)
+        comments = get_object_or_404(Comment, id=comments_id, task__id=task_id)
 
-        board = comment.task.board
+        board = comments.task.board
         if request.user != board.owner and request.user not in board.members.all():
             return Response({'detail': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
-        comment.delete()
+        comments.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
