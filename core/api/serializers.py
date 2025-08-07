@@ -93,15 +93,15 @@ class TaskSerializer(serializers.ModelSerializer):
     Serializer for Task objects. Includes nested user info for assignees and reviewers,
     and a count of related comments.
     """
-    assignees = TaskAssigneeSerializer(many=True, read_only=True)
-    reviewers = TaskReviewerSerializer(many=True, read_only=True)
+    assignee = serializers.SerializerMethodField(source='assignees', read_only=True)
+    reviewer = serializers.SerializerMethodField(source='reviewers', read_only=True)
     comments_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
         fields = [
             'id', 'title', 'description', 'status', 'priority',
-            'assignees', 'reviewers', 'due_date', 'comments_count'
+            'assignee', 'reviewer', 'due_date', 'comments_count'
         ]
 
     def get_comments_count(self, obj):
@@ -109,6 +109,32 @@ class TaskSerializer(serializers.ModelSerializer):
         Returns the number of comments related to the task.
         """
         return obj.comments.count() if hasattr(obj, 'comments') else 0
+    
+    def get_assignee(self, obj):
+        """
+        Returns the first user from the assignees list as a dictionary.
+        """
+        user = obj.assignees.first()
+        if user:
+            return {
+            "id": user.id,
+            "email": user.email,
+            "fullname": f"{user.first_name}"
+            }
+        return None
+
+    def get_reviewer(self, obj):
+        """
+        Returns the first user from the reviewers list as a dictionary.
+        """
+        user = obj.reviewers.first()
+        if user:
+            return {
+            "id": user.id,
+            "email": user.email,
+            "fullname": f"{user.first_name}"
+            }
+        return None
     
 class TaskReviewSerializer(serializers.ModelSerializer):
     """
@@ -157,6 +183,7 @@ class BoardDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'title',
+            'owner_id',
             'members',
             'tasks'
         ]
@@ -165,6 +192,7 @@ class BoardDetailSerializer(serializers.ModelSerializer):
         }
 
 class CommentSerializer(serializers.ModelSerializer):
+
     """
     Serializer for task comments.
     Includes author name, content, and creation timestamp.
@@ -177,6 +205,7 @@ class CommentSerializer(serializers.ModelSerializer):
 
     def get_author(self, obj):
         return obj.author.first_name
+
 
 class BoardPatchSerializer(serializers.ModelSerializer):
     """
@@ -198,8 +227,8 @@ class TaskPatchSerializer(serializers.ModelSerializer):
     Serializer for PATCH updates on Task model.
     Includes nested representations of assignees and reviewers.
     """
-    assignee = TaskAssigneeSerializer(many=True, source='assignees')
-    reviewer = TaskReviewerSerializer(many=True, source='reviewers')
+    assignee = serializers.SerializerMethodField(source='assignees')
+    reviewer = serializers.SerializerMethodField(source='reviewers')
 
     class Meta:
         model = Task
@@ -211,6 +240,33 @@ class TaskPatchSerializer(serializers.ModelSerializer):
                   'assignee', 
                   'reviewer', 
                   'due_date']
+        
+    def get_assignee(self, obj):
+        """
+        Returns the first user from the assignees list as a dictionary.
+        """
+        user = obj.assignees.first()
+        if user:
+            return {
+            "id": user.id,
+            "email": user.email,
+            "fullname": f"{user.first_name}"
+            }
+        return None
+
+    def get_reviewer(self, obj):
+        """
+        Returns the first user from the reviewers list as a dictionary.
+        """
+        user = obj.reviewers.first()
+        if user:
+            return {
+            "id": user.id,
+            "email": user.email,
+            "fullname": f"{user.first_name}"
+            }
+        return None
+
 
 class TaskAssignedToMeSerializer(serializers.ModelSerializer):
     """

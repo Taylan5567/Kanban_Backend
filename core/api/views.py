@@ -7,7 +7,6 @@ from core.models import Board, Task, Comment
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
 from django.contrib.auth.models import User
-from rest_framework.authtoken.models import Token
 from rest_framework.authentication import TokenAuthentication
 from django.shortcuts import get_object_or_404
 
@@ -133,27 +132,32 @@ class EmailCheckView(APIView):
     URL pattern should include <str:email> as a parameter.
 
     Example:
-        GET /api/email-check/test@example.com/
+        GET /api/email-check/?email=test@example.com/
 
     Returns:
         - 200 OK with user data if email exists
-        - 204 No Content if email does not exist
+        - 404 No Content if email does not exist
     """
+    permission_classes = [IsAuthenticated]
 
-    def get(self, request, email):
-        exists = User.objects.filter(email=email).exists()
+    def get(self, request):
+        email = request.query_params.get('email')
 
-        if exists:
-            user = User.objects.get(email=email)
-            data = {
-                "id": user.id,
-                "email": user.email,
-                "fullname": user.first_name
-            }
-            return Response(data, status=status.HTTP_200_OK)
-        else:
-            return Response({"detail": "The email address is not registered."}, status=status.HTTP_204_NO_CONTENT)
-        
+        if not email:
+            return Response({'error': 'E-Mail is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not User.objects.filter(email=email).exists():
+            return Response({'detail': 'The email address is not registered.'}, status=status.HTTP_404_NOT_FOUND)
+
+        user = User.objects.get(email=email)
+        data = {
+            "id": user.id,
+            "email": user.email,
+            "fullname": user.first_name
+        }
+        return Response(data, status=status.HTTP_200_OK)
+    
+
 class TaskCreateView(APIView):
     """
     API view to create a new task within a specific board.
@@ -167,31 +171,28 @@ class TaskCreateView(APIView):
         """
         Creates a new task if the user is authorized and all provided users are board members.
 
-        Request body:
-            - board (int): ID of the board
-            - title (str): Title of the task
-            - description (str): Task description
-            - status (str): Task status (to-do, in-progress, done, review)
-            - priority (str): Task priority (low, medium, high)
-            - due_date (date): Optional due date
-            - assignees (list[int]) or assignee_id (int)
-            - reviewers (list[int]) or reviewer_id (int)
-
         Returns:
             - 201 Created with task data
             - 400 Bad Request if validation fails
             - 403 Forbidden if user not allowed
-            - 500 Internal Server Error if an exception occurs
+            - 404 Not Found if board or user not found
+            - 500 Internal Server Error if unexpected exception occurs
         """
+
+        
+
         try:
             data = request.data
-            board_id = data.get("board")
+            user = request.user
 
+            board_id = data.get("board")
             if not board_id:
                 return Response({"error": "Board ID is required."}, status=status.HTTP_400_BAD_REQUEST)
-
-            board = get_object_or_404(Board, id=board_id)
-            user = request.user
+            
+            try:
+                board = Board.objects.get(id=board_id)
+            except Board.DoesNotExist:
+                return Response({"error": "Board not found."}, status=status.HTTP_404_NOT_FOUND)
 
             if user != board.owner and user not in board.members.all():
                 return Response({"error": "Access denied. You are not a member of this board."}, status=status.HTTP_403_FORBIDDEN)
@@ -307,6 +308,16 @@ class MyTaskDetailsView(APIView):
         user = request.user
         data = request.data.copy()
         serializer = TaskPatchSerializer(task, data=data, partial=True, context={'request': request})
+
+        is_owner = user == task.board.owner
+        is_assignee = task.assignees.filter(id=user.id).exists()
+        is_reviewer = task.reviewers.filter(id=user.id).exists()
+
+        if not (is_owner or is_assignee or is_reviewer):
+            return Response(
+                {"error": "You do not have permission to update this task."},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         if serializer.is_valid():
             updated_task = serializer.save()
