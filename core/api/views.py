@@ -9,6 +9,7 @@ from django.db.models import Q
 from django.contrib.auth.models import User
 from rest_framework.authentication import TokenAuthentication
 from django.shortcuts import get_object_or_404
+from rest_framework.exceptions import ValidationError
 
 
 class BoardListView(APIView):
@@ -178,16 +179,13 @@ class TaskCreateView(APIView):
             - 404 Not Found if board or user not found
             - 500 Internal Server Error if unexpected exception occurs
         """
-
-        
-
         try:
             data = request.data
             user = request.user
 
             board_id = data.get("board")
             if not board_id:
-                return Response({"error": "Board ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+                raise ValidationError("Board ID is required.")
             
             try:
                 board = Board.objects.get(id=board_id)
@@ -224,8 +222,8 @@ class TaskCreateView(APIView):
             serializer = TaskSerializer(task, context={"request": request})
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
 class MyTasksReviewsView(APIView):
     """
